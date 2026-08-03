@@ -283,7 +283,7 @@ async def chat_endpoint(req: ChatRequest):
         try:
             client = genai.Client(api_key=GEMINI_API_KEY)
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.6-flash',
                 contents=f"Bạn là FinAgent, trợ lý tín dụng ngân hàng trên Zalo. Trả lời thân thiện, ngắn gọn và hỏi tiếp để hoàn thiện hồ sơ thẩm định: {req.message}"
             )
             if response and response.text:

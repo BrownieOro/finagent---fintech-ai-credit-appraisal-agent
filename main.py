@@ -61,10 +61,17 @@ class ChatRequest(BaseModel):
     extracted_data: Optional[Dict[str, Any]] = None
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    # ✅ Fix lỗi Jinja2 bằng cách truyền request=request và name="index.html"
-    return templates.TemplateResponse(request=request, name="index.html")
-
+async def read_root():
+    # Tự tìm file index.html dù nó nằm ở đâu
+    if os.path.exists("templates/index.html"):
+        with open("templates/index.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    elif os.path.exists("index.html"):
+        with open("index.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    else:
+        return HTMLResponse(content="<h1>Chưa thấy file index.html trên GitHub! Kiểm tra lại folder giúp tui nha.</h1>")
+    
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatRequest):
     try:

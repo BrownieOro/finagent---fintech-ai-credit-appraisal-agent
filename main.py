@@ -62,7 +62,8 @@ class ChatRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    # ✅ Fix lỗi Jinja2 bằng cách truyền request=request và name="index.html"
+    return templates.TemplateResponse(request=request, name="index.html")
 
 @app.post("/api/chat")
 async def chat_endpoint(payload: ChatRequest):
@@ -84,8 +85,9 @@ async def chat_endpoint(payload: ChatRequest):
                 )
             )
 
+        # ✅ Đổi về gemini-1.5-flash chuẩn đét của Google AI Studio
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,

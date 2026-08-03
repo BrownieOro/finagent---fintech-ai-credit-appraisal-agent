@@ -1,13 +1,68 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinAgent - Trợ Lý Tín Dụng Zalo</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #eef2f5; margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .chat-container { width: 100%; max-width: 450px; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 90vh; }
+        .header { background: #0088FF; color: white; padding: 15px; text-align: center; font-weight: bold; font-size: 18px; }
+        .messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .msg { max-width: 80%; padding: 10px 14px; border-radius: 15px; font-size: 14px; line-height: 1.4; }
+        .bot { background: #f0f0f0; align-self: flex-start; color: #333; }
+        .user { background: #0088FF; color: white; align-self: flex-end; }
+        .input-box { padding: 10px; border-top: 1px solid #ddd; display: flex; gap: 8px; }
+        input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+        button { background: #0088FF; color: white; border: none; padding: 10px 16px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
 
+<div class="chat-container">
+    <div class="header">FinAgent - Trợ Lý Tín Dụng Zalo</div>
+    <div class="messages" id="chatBox">
+        <div class="msg bot">Xin chào! Em là FinAgent. Em có thể hỗ trợ anh/chị làm hồ sơ vay vốn hộ kinh doanh ạ. Cho em hỏi tên tiệm hoặc loại hình kinh doanh của mình là gì ạ?</div>
+    </div>
+    <div class="input-box">
+        <input type="text" id="userInput" placeholder="Nhập tin nhắn..." onkeydown="if(event.key==='Enter') sendMessage()">
+        <button onclick="sendMessage()">Gửi</button>
+    </div>
+</div>
+
+<script>
+    let extractedData = {};
+
+    async function sendMessage() {
+        const input = document.getElementById("userInput");
+        const chatBox = document.getElementById("chatBox");
+        const msgText = input.value.trim();
+
+        if (!msgText) return;
+
+        // Hiện tin nhắn người dùng
+        chatBox.innerHTML += `<div class="msg user">${msgText}</div>`;
+        input.value = "";
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        try {
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: msgText, extracted_data: extractedData })
+            });
+
+            const data = await response.json();
+            if (data.extracted_data) extractedData = data.extracted_data;
+
+            // Hiện tin nhắn Bot trả lời
+            chatBox.innerHTML += `<div class="msg bot">${data.reply}</div>`;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        } catch (err) {
+            chatBox.innerHTML += `<div class="msg bot" style="color:red;">Lỗi kết nối Server! Vui lòng thử lại.</div>`;
+        }
+    }
+</script>
+
+</body>
+</html>

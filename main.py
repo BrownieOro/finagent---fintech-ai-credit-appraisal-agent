@@ -1,100 +1,76 @@
 import os
 import json
 import base64
-from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, Request, Form, File, UploadFile, HTTPException
+from typing import Optional, Dict, Any
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
-app = FastAPI(title="FinAgent - Trợ Lý Tín Dụng Zalo", version="1.0.0")
+app = FastAPI(title="FinAgent - Trợ Lý Tín Dụng Zalo")
 
-# Setup templates directory
-templates = Jinja2Templates(directory="templates")
-
-# Initialize Gemini Client lazily
 def get_gemini_client():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY environment variable is not configured.")
+        raise HTTPException(status_code=500, detail="Thiếu GEMINI_API_KEY trong Environment Variables.")
     return genai.Client(api_key=api_key)
 
 SYSTEM_INSTRUCTION = """
-Bạn là FinAgent - Trợ lý Tín dụng AI chuyên nghiệp trên nền tảng Zalo, tư vấn và thẩm định tín dụng cho Ngân hàng / Tổ chức tài chính dành cho các Hộ Kinh Doanh Nhỏ Lẻ tại Việt Nam.
+Bạn là FinAgent - Trợ lý Tín dụng AI chuyên nghiệp trên nền tảng Zalo, tư vấn và thẩm định tín dụng cho Ngân hàng dành cho Hộ Kinh Doanh Nhỏ Lẻ tại Việt Nam.
 
-Nhiệm vụ chính:
-1. Hỏi và thu thập 3 nhóm thông tin quan trọng một cách lịch sự, tự nhiên như trò chuyện Zalo:
-   - Tên Hộ Kinh Doanh / Chủ hộ & Loại hình kinh doanh (Ví dụ: Tiệm tạp hóa, Quán ăn, Cửa hàng quần áo...).
-   - Doanh thu & Chi phí ước tính hàng tháng (Thu thập trực tiếp qua lời khai hoặc trích xuất từ hình ảnh sổ tay / hóa đơn / sao kê mà khách hàng đính kèm).
-   - Nhu cầu vay: Số tiền vay đề xuất & Thời hạn vay mong muốn (tháng).
-2. Xử lý và Phân tích hình ảnh (nếu có): Nếu người dùng gửi ảnh sổ ghi chép, hóa đơn, biên nhận, hãy tự động trích xuất các con số doanh thu, chi phí hoặc tiền nhập hàng.
-3. Khi đã có đủ dữ liệu thu nhập và nhu cầu vay, tính toán nhanh:
-   - Thu nhập ròng (Net Profit) = Doanh thu - Chi phí.
-   - Ước tính gốc lãi hàng tháng = (Số tiền vay / Thời hạn vay) + (Số tiền vay * 1% lãi suất/tháng).
-   - Tỷ lệ trả nợ DSR (%) = (Gốc lãi hàng tháng / Thu nhập ròng) * 100.
-4. Đánh giá rủi ro nhanh:
-   - DSR <= 40%: Mức độ rủi ro Thấp - Khả năng phê duyệt CAO.
-   - DSR > 40%: Mức độ rủi ro Trung bình / Cao - Cần xem xét giảm hạn mức vay hoặc bổ sung tài sản đảm bảo.
-
-Cấu trúc JSON phản hồi bắt buộc:
-Trả về phản hồi theo định dạng JSON phẳng duy nhất sau (không đặt trong markdown ```json):
+Nhiệm vụ:
+1. Trích xuất thông tin từ tin nhắn hoặc HÌNH ẢNH SỔ SÁCH/HÓA ĐƠN (OCR).
+2. Thu thập: Tên hộ, Mô hình kinh doanh, Doanh thu, Chi phí, Nhu cầu vay, Thời hạn vay.
+3. Trả về đúng định dạng JSON duy nhất (không bọc trong markdown ```json):
 {
-  "reply": "Lời nhắn phản hồi thân thiện dành cho khách hàng trên Zalo",
+  "reply_to_user": "Lời nhắn phản hồi thân thiện dành cho khách hàng trên Zalo",
   "extracted_data": {
-    "merchant_name": "Tên chủ hộ/tên tiệm (hoặc null)",
-    "business_type": "Mô hình kinh doanh (hoặc null)",
-    "revenue_monthly": 100000000, // số nguyên VND (hoặc null)
-    "expense_monthly": 60000000,  // số nguyên VND (hoặc null)
-    "loan_amount": 150000000,     // số nguyên VND (hoặc null)
-    "loan_term_months": 24         // số tháng (hoặc null)
+    "merchant_name": "Tên chủ hộ/tiệm",
+    "business_type": "Mô hình kinh doanh",
+    "revenue_monthly": 100000000,
+    "expense_monthly": 60000000,
+    "loan_amount": 150000000,
+    "loan_term_months": 12,
+    "loan_purpose": "Mục đích vay"
   },
-  "interview_completed": false // chuyển thành true khi đã thu thập đủ Tên hộ, Doanh thu, Chi phí và Nhu cầu vay
+  "next_state": "INTERVIEWING" // hoặc "COMPLETED" khi đã đủ dữ liệu
 }
 """
 
-class ChatRequest(BaseModel):
-    message: str
-    image_base64: Optional[str] = None
-    extracted_data: Optional[Dict[str, Any]] = None
+class ChatPayload(BaseModel):
+    message: Optional[str] = ""
+    image: Optional[str] = None
+    current_data: Optional[Dict[str, Any]] = None
+    current_state: Optional[str] = "GREETING"
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    # Tự tìm file index.html dù nó nằm ở đâu
-    if os.path.exists("templates/index.html"):
-        with open("templates/index.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
-    elif os.path.exists("index.html"):
-        with open("index.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
-    else:
-        return HTMLResponse(content="<h1>Chưa thấy file index.html trên GitHub! Kiểm tra lại folder giúp tui nha.</h1>")
-    
+    possible_paths = ["templates/index.html", "index.html"]
+    for path in possible_paths:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+    return HTMLResponse(content="<h2>Chưa tìm thấy index.html</h2>")
+
 @app.post("/api/chat")
-async def chat_endpoint(payload: ChatRequest):
+async def chat_endpoint(payload: ChatPayload):
     try:
         client = get_gemini_client()
-        contents = []
+        contents = [
+            f"Dữ liệu hiện tại: {json.dumps(payload.current_data or {}, ensure_ascii=False)}\nTin nhắn mới: {payload.message}"
+        ]
 
-        prompt_text = f"Thông tin đã thu thập trước đó: {json.dumps(payload.extracted_data or {}, ensure_ascii=False)}\nTin nhắn mới từ người dùng: {payload.message}"
-        contents.append(prompt_text)
+        if payload.image:
+            try:
+                base64_data = payload.image.split(",", 1)[1] if "," in payload.image else payload.image
+                image_bytes = base64.b64decode(base64_data)
+                contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
+            except Exception as e:
+                print("Lỗi đọc ảnh OCR:", e)
 
-        if payload.image_base64:
-            # Decode base64 image if present
-            header, base64_data = payload.image_base64.split(",", 1) if "," in payload.image_base64 else ("", payload.image_base64)
-            image_bytes = base64.b64decode(base64_data)
-            contents.append(
-                types.Part.from_bytes(
-                    data=image_bytes,
-                    mime_type="image/jpeg"
-                )
-            )
-
-        # ✅ Đổi về gemini-1.5-flash chuẩn đét của Google AI Studio
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
@@ -103,19 +79,52 @@ async def chat_endpoint(payload: ChatRequest):
             )
         )
 
-        result_json = json.loads(response.text)
-        return JSONResponse(content=result_json)
+        try:
+            res_json = json.loads(response.text)
+        except Exception:
+            res_json = {
+                "reply_to_user": response.text,
+                "extracted_data": payload.current_data or {},
+                "next_state": payload.current_state
+            }
+
+        return JSONResponse(content=res_json)
 
     except Exception as e:
         return JSONResponse(
-            status_code=500,
+            status_code=200,
             content={
-                "reply": f"FinAgent gặp gián đoạn nhỏ: {str(e)}. Xin vui lòng thử lại!",
-                "extracted_data": payload.extracted_data or {},
-                "interview_completed": False
+                "reply_to_user": f"FinAgent đang gặp gián đoạn kết nối: {str(e)}. Xin vui lòng gửi lại tin nhắn!",
+                "extracted_data": payload.current_data or {},
+                "next_state": payload.current_state
             }
         )
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=3000, reload=True)
+@app.post("/api/export-report")
+async def export_report(payload: Dict[str, Any]):
+    data = payload.get("extracted_data", {})
+    rev = data.get("revenue_monthly") or 0
+    exp = data.get("expense_monthly") or 0
+    loan = data.get("loan_amount") or 0
+    term = data.get("loan_term_months") or 12
+    
+    net = rev - exp
+    monthly_pay = (loan / term) + (loan * 0.01) if term > 0 else 0
+    dsr = (monthly_pay / net * 100) if net > 0 else 0
+    
+    status = "PHÊ DUYỆT" if dsr <= 40 and dsr > 0 else "CẦN TĂNG TÀI SẢN ĐẢM BẢO / GIẢM HẠN MỨC"
+
+    return JSONResponse(content={
+        "merchant_name": data.get("merchant_name") or "Chưa rõ",
+        "business_type": data.get("business_type") or "Chưa rõ",
+        "financial_summary": {
+            "revenue": rev,
+            "expense": exp,
+            "net_profit": net,
+            "loan_requested": loan,
+            "estimated_monthly_payment": monthly_pay,
+            "dsr_ratio": round(dsr, 1)
+        },
+        "approval_status": status,
+        "recommendation": f"Tỷ lệ DSR đạt {round(dsr, 1)}%. Hộ kinh doanh có dòng tiền khả thi để hoàn trả khoản vay."
+    })

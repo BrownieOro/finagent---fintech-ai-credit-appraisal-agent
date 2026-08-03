@@ -1,0 +1,6 @@
+{
+  "name": "FinAgent - Fintech AI Credit Appraisal Agent",
+  "description": "AI Credit Appraisal Agent for micro-businesses in Vietnam, featuring Zalo-style chat, receipt/ledger analysis, financial risk assessment, and Credit Appraisal Report generation.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
